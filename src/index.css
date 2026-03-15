@@ -1,0 +1,14 @@
+@import "tailwindcss";
+
+@theme {
+  --color-royal-blue: #002366;
+  --color-gold: #D4AF37;
+  --color-gold-hover: #B8860B;
+  --font-display: "Playfair Display", serif;
+}
+
+@layer base {
+  body {
+    @apply bg-white text-slate-900;
+  }
+}

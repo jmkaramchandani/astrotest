@@ -1,0 +1,83 @@
+{
+  "entities": {
+    "users": {
+      "title": "User",
+      "description": "Application users with roles (admin or member).",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Firebase Auth UID" },
+        "email": { "type": "string", "format": "email" },
+        "role": { "type": "string", "enum": ["admin", "member"] },
+        "displayName": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "role"]
+    },
+    "competitors": {
+      "title": "Competitor",
+      "description": "Tracked competitors.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "website": { "type": "string" },
+        "instagram": { "type": "string" },
+        "youtube": { "type": "string" },
+        "adLibraryLink": { "type": "string" },
+        "addedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "campaigns": {
+      "title": "Campaign",
+      "description": "User's marketing campaigns.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "platform": { "type": "string" },
+        "budget": { "type": "number" },
+        "ctr": { "type": "number" },
+        "cpc": { "type": "number" },
+        "conversionRate": { "type": "number" },
+        "revenue": { "type": "number" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      }
+    },
+    "saved_ads": {
+      "title": "Saved Ad",
+      "description": "Ads saved from the Global Ad Spy tool.",
+      "type": "object",
+      "properties": {
+        "headline": { "type": "string" },
+        "copySummary": { "type": "string" },
+        "hookType": { "type": "string" },
+        "ctaType": { "type": "string" },
+        "funnelType": { "type": "string" },
+        "audienceIntent": { "type": "string" },
+        "landingPage": { "type": "string" },
+        "platform": { "type": "string" },
+        "performanceScore": { "type": "number" },
+        "engagementScore": { "type": "number" },
+        "funnelScore": { "type": "number" },
+        "savedAt": { "type": "string", "format": "date-time" },
+        "uid": { "type": "string" }
+      }
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "users",
+      "description": "User profile and role information."
+    },
+    "/competitors/{id}": {
+      "schema": "competitors",
+      "description": "Tracked competitors."
+    },
+    "/campaigns/{id}": {
+      "schema": "campaigns",
+      "description": "Marketing campaign performance."
+    },
+    "/saved_ads/{id}": {
+      "schema": "saved_ads",
+      "description": "Saved ad results."
+    }
+  }
+}
