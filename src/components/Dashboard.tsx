@@ -115,42 +115,62 @@ export default function Dashboard({ profile }: { profile: UserProfile | null }) 
 
   // Actions
   const handleSpy = async () => {
-    if (!spyKeyword) return;
-    setLoading(true);
-    const response = await spyAds(spyKeyword, spyCountry, spyPlatform, spyAdType, spyOfferType, spyDateRange);
-    setSpyResults(response.ads);
-    setSpySummary(response.summary);
-    setCompetingAds({}); // Clear previous versions
+  if (!spyKeyword) return;
+
+  setLoading(true);
+
+  try {
+    const countryMap: Record<string, string> = {
+      Global: 'IN',
+      India: 'IN',
+      USA: 'US',
+      UK: 'GB',
+      Canada: 'CA',
+      Australia: 'AU',
+    };
+
+    const countryCode = countryMap[spyCountry] || 'IN';
+
+    const res = await fetch(
+      `/api/searchAds?keyword=${encodeURIComponent(spyKeyword)}&country=${encodeURIComponent(countryCode)}`
+    );
+
+    const data = await res.json();
+
+    const mappedAds = (data.data || []).map((ad: any) => ({
+      headline: ad.page_name || 'Unknown advertiser',
+      platform: Array.isArray(ad.publisher_platforms)
+        ? ad.publisher_platforms.join(', ')
+        : 'Meta',
+      country: countryCode,
+      creativeType: 'Meta Ad',
+      hook: '',
+      angle: '',
+      cta: '',
+      adCopy: '',
+      performanceScore: 0,
+      engagementScore: 0,
+      funnelScore: 0,
+      adSnapshotUrl: ad.ad_snapshot_url || '',
+      pageId: ad.page_id || '',
+      deliveryStart: ad.ad_delivery_start_time || '',
+      deliveryStop: ad.ad_delivery_stop_time || '',
+    }));
+
+    setSpyResults(mappedAds);
+    setSpySummary({
+      totalAds: mappedAds.length,
+      source: 'Meta Ads Library',
+    });
+    setCompetingAds({});
+  } catch (error) {
+    console.error('Error fetching Meta ads:', error);
+    setSpyResults([]);
+    setSpySummary({ totalAds: 0, source: 'Meta Ads Library' });
+  } finally {
     setLoading(false);
-  };
-
-  const handleCreateMyVersion = async (ad: AdSpyResult, index: number) => {
-    setGeneratingVersion(index);
-    try {
-      const version = await generateCompetingAd(ad);
-      setCompetingAds(prev => ({ ...prev, [index]: version }));
-    } catch (error) {
-      console.error("Error generating competing ad:", error);
-    } finally {
-      setGeneratingVersion(null);
-    }
-  };
-
-  useEffect(() => {
-    if (spyKeyword && activeTab === 'adspy') {
-      const timer = setTimeout(() => {
-        handleSpy();
-      }, 500);
-      return () => clearTimeout(timer);
-    }
-  }, [spyCountry, spyPlatform, spyAdType, spyOfferType, spyDateRange]);
-
-  const handleGenerateHooks = async () => {
-    setLoading(true);
-    const results = await generateHooks(hookKeyword);
-    setHookResults(results);
-    setLoading(false);
-  };
+  }
+};
 
   const handleViralRadar = async () => {
     if (!viralKeyword) return;
