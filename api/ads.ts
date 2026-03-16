@@ -1,41 +1,63 @@
 export default async function handler(req, res) {
-  const { keyword } = req.query;
+  const { keyword, runId } = req.query;
 
-  if (!keyword) {
-    return res.status(400).json({ error: 'Missing keyword' });
-  }
-
-  try {
-    const response = await fetch(
-      `https://api.apify.com/v2/acts/apify~facebook-ads-scraper/run-sync-get-dataset-items?token=${process.env.APIFY_API_TOKEN}`,
+  if (keyword && !runId) {
+    const startResponse = await fetch(
+      `https://api.apify.com/v2/acts/apify~facebook-ads-scraper/runs?token=${process.env.APIFY_API_TOKEN}`,
       {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
         },
         body: JSON.stringify({
           startUrls: [
             {
-              url: `https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=IN&q=${encodeURIComponent(
-                String(keyword)
-              )}&search_type=keyword_unordered`,
-            },
+              url: `https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=US&q=${keyword}&search_type=keyword_unordered`
+            }
           ],
-          resultsLimit: 25,
-          includeAboutPage: true,
-          isDetailsPerAd: true,
-        }),
+          resultsLimit: 10
+        })
       }
     );
 
-    const data = await response.json();
+    const data = await startResponse.json();
 
-    if (!response.ok) {
-      return res.status(response.status).json(data);
+    return res.status(200).json({
+      status: "RUNNING",
+      runId: data.data.id
+    });
+  }
+
+  if (runId) {
+    const runResponse = await fetch(
+      `https://api.apify.com/v2/actor-runs/${runId}?token=${process.env.APIFY_API_TOKEN}`
+    );
+
+    const runData = await runResponse.json();
+
+    const status = runData.data.status;
+    const datasetId = runData.data.defaultDatasetId;
+
+    if (status !== "SUCCEEDED") {
+      return res.status(200).json({
+        status,
+        runId
+      });
     }
 
-    return res.status(200).json(data);
-  } catch (error) {
-    return res.status(500).json({ error: 'Failed to fetch ads from Apify' });
+    const itemsResponse = await fetch(
+      `https://api.apify.com/v2/datasets/${datasetId}/items?clean=true&token=${process.env.APIFY_API_TOKEN}`
+    );
+
+    const items = await itemsResponse.json();
+
+    return res.status(200).json({
+      status: "SUCCEEDED",
+      items
+    });
   }
+
+  return res.status(400).json({
+    error: "Provide keyword or runId"
+  });
 }
