@@ -23,7 +23,7 @@ export default function App() {
           setProfile(docSnap.data() as UserProfile);
         } else {
           // Default profile creation if not exists
-          const isDefaultAdmin = firebaseUser.email === 'team@ekshakti.org';
+         const isDefaultAdmin = firebaseUser.email === 'jmkaramchandani@gmail.com';
           const newProfile: UserProfile = {
             uid: firebaseUser.uid,
             email: firebaseUser.email || '',
