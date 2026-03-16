@@ -1,33 +1,51 @@
 import { useState } from 'react';
-import { signInWithPopup, GoogleAuthProvider, sendPasswordResetEmail } from 'firebase/auth';
+import {
+  signInWithEmailAndPassword,
+  sendPasswordResetEmail
+} from 'firebase/auth';
 import { auth } from '../firebase';
 import { motion } from 'motion/react';
 import { Shield, User, Mail, Lock } from 'lucide-react';
 
+type LoginMode = 'admin' | 'member';
+
 export default function Login() {
   const [email, setEmail] = useState('');
-  const [isResetting, setIsResetting] = useState(false);
+  const [password, setPassword] = useState('');
+  const [mode, setMode] = useState<LoginMode>('admin');
   const [message, setMessage] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const handleGoogleLogin = async () => {
-    const provider = new GoogleAuthProvider();
+  const handleEmailLogin = async () => {
+    if (!email || !password) {
+      setMessage('Please enter both email and password.');
+      return;
+    }
+
+    setLoading(true);
+    setMessage('');
+
     try {
-      await signInWithPopup(auth, provider);
-    } catch (error) {
-      console.error("Login failed", error);
+      await signInWithEmailAndPassword(auth, email, password);
+      setMessage(`${mode === 'admin' ? 'Admin' : 'Member'} login successful.`);
+    } catch (error: any) {
+      setMessage(error?.message || 'Login failed.');
+    } finally {
+      setLoading(false);
     }
   };
 
   const handleForgotPassword = async () => {
     if (!email) {
-      setMessage("Please enter your email first.");
+      setMessage('Please enter your email first.');
       return;
     }
+
     try {
       await sendPasswordResetEmail(auth, email);
-      setMessage("Password reset email sent.");
-    } catch (error) {
-      setMessage("Error sending reset email.");
+      setMessage('Password reset email sent.');
+    } catch (error: any) {
+      setMessage(error?.message || 'Error sending reset email.');
     }
   };
 
@@ -35,7 +53,7 @@ export default function Login() {
     <div className="min-h-screen flex items-center justify-center bg-white font-sans">
       <div className="max-w-md w-full p-8 space-y-8">
         <div className="text-center">
-          <motion.h1 
+          <motion.h1
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
             className="text-5xl font-display text-royal-blue font-bold tracking-tighter"
@@ -50,15 +68,30 @@ export default function Login() {
         <div className="mt-12 space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <button
-              onClick={handleGoogleLogin}
-              className="flex flex-col items-center justify-center p-6 border border-slate-100 rounded-2xl hover:border-royal-blue transition-all group bg-white shadow-sm"
+              onClick={() => {
+                setMode('admin');
+                setMessage('Admin mode selected.');
+              }}
+              className={`flex flex-col items-center justify-center p-6 border rounded-2xl transition-all group bg-white shadow-sm ${
+                mode === 'admin'
+                  ? 'border-royal-blue'
+                  : 'border-slate-100 hover:border-royal-blue'
+              }`}
             >
               <Shield className="w-8 h-8 text-royal-blue mb-2 group-hover:scale-110 transition-transform" />
               <span className="text-sm font-bold text-royal-blue">Admin Login</span>
             </button>
+
             <button
-              onClick={handleGoogleLogin}
-              className="flex flex-col items-center justify-center p-6 border border-slate-100 rounded-2xl hover:border-royal-blue transition-all group bg-white shadow-sm"
+              onClick={() => {
+                setMode('member');
+                setMessage('Member mode selected.');
+              }}
+              className={`flex flex-col items-center justify-center p-6 border rounded-2xl transition-all group bg-white shadow-sm ${
+                mode === 'member'
+                  ? 'border-royal-blue'
+                  : 'border-slate-100 hover:border-royal-blue'
+              }`}
             >
               <User className="w-8 h-8 text-royal-blue mb-2 group-hover:scale-110 transition-transform" />
               <span className="text-sm font-bold text-royal-blue">Member Login</span>
@@ -85,7 +118,26 @@ export default function Login() {
                 className="w-full pl-10 pr-4 py-3 border border-slate-100 rounded-xl focus:outline-none focus:ring-2 focus:ring-royal-blue/20 transition-all"
               />
             </div>
-            
+
+            <div className="relative">
+              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+              <input
+                type="password"
+                placeholder="Password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full pl-10 pr-4 py-3 border border-slate-100 rounded-xl focus:outline-none focus:ring-2 focus:ring-royal-blue/20 transition-all"
+              />
+            </div>
+
+            <button
+              onClick={handleEmailLogin}
+              disabled={loading}
+              className="w-full py-3 bg-royal-blue hover:opacity-90 text-white font-bold rounded-xl transition-all transform active:scale-95 disabled:opacity-50"
+            >
+              {loading ? 'Signing In...' : `Sign In as ${mode === 'admin' ? 'Admin' : 'Member'}`}
+            </button>
+
             <button
               onClick={handleForgotPassword}
               className="w-full py-3 bg-gold hover:bg-gold-hover text-white font-bold rounded-xl shadow-lg shadow-gold/20 transition-all transform active:scale-95"
@@ -95,7 +147,7 @@ export default function Login() {
           </div>
 
           {message && (
-            <p className="text-center text-sm text-royal-blue font-medium animate-pulse">
+            <p className="text-center text-sm text-royal-blue font-medium">
               {message}
             </p>
           )}
