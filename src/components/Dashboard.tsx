@@ -13,6 +13,7 @@ import {
   CheckCircle2,
   AlertCircle,
   ExternalLink,
+  Globe,
 } from 'lucide-react';
 import { auth } from '../firebase';
 import { UserProfile } from '../types';
@@ -27,14 +28,7 @@ type TabId =
   | 'trends'
   | 'advisor';
 
-type AdRunResponse =
-  | {
-      status: 'RUNNING' | 'READY' | 'SUCCEEDED' | 'FAILED' | 'ABORTED' | 'TIMED-OUT';
-      runId?: string;
-      items?: any[];
-      error?: string;
-    }
-  | any;
+type SearchMode = 'keyword' | 'competitor' | 'landing';
 
 const sidebarItems: { id: TabId; label: string; icon: React.ComponentType<any> }[] = [
   { id: 'overview', label: 'Dashboard', icon: LayoutDashboard },
@@ -51,145 +45,201 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function getAdTitle(ad: any) {
-  return (
-    ad?.snapshot?.title ||
-    ad?.snapshot?.body?.text ||
-    ad?.snapshot?.caption ||
-    ad?.adText ||
-    ad?.headline ||
-    ad?.title ||
-    'Untitled Ad'
-  );
-}
-
-function getAdBody(ad: any) {
-  return (
-    ad?.snapshot?.body?.text ||
-    ad?.snapshot?.caption ||
-    ad?.adText ||
-    ad?.primaryText ||
-    ''
-  );
-}
-
-function getAdFormat(ad: any) {
-  return (
-    ad?.snapshot?.displayFormat ||
-    ad?.displayFormat ||
-    ad?.mediaType ||
-    ad?.format ||
-    'Unknown'
-  );
-}
-
-function getAdPageName(ad: any) {
-  return (
-    ad?.pageName ||
-    ad?.aboutPageInfo?.name ||
-    ad?.snapshot?.pageName ||
-    ad?.page_name ||
-    'Unknown advertiser'
-  );
-}
-
-function getAdPlatforms(ad: any): string[] {
-  const raw =
-    ad?.publisherPlatform ||
-    ad?.publisherPlatforms ||
-    ad?.platforms ||
-    ad?.snapshot?.publisherPlatforms ||
-    [];
-  if (Array.isArray(raw)) return raw;
-  if (typeof raw === 'string') return [raw];
-  return [];
-}
-
-function getAdSnapshotUrl(ad: any) {
-  return ad?.adSnapshotUrl || ad?.snapshot?.adSnapshotUrl || ad?.url || '';
-}
-
-function getAdImageUrl(ad: any) {
-  return (
-    ad?.snapshot?.images?.[0]?.url ||
-    ad?.imageUrl ||
-    ad?.snapshot?.imageUrl ||
-    ''
-  );
-}
-
-function getAdVideoUrl(ad: any) {
-  return (
-    ad?.snapshot?.videos?.[0]?.url ||
-    ad?.videoUrl ||
-    ad?.snapshot?.videoUrl ||
-    ''
-  );
-}
-
-function getAdStartDate(ad: any) {
-  return ad?.startDateFormatted || ad?.snapshot?.startDateFormatted || ad?.startDate || '';
-}
-
-function getAdEndDate(ad: any) {
-  return ad?.endDateFormatted || ad?.snapshot?.endDateFormatted || ad?.endDate || '';
-}
-
-function getHook(text: string) {
+function firstSentence(text: string) {
   if (!text) return '';
-  const firstSentence = text.split(/[.!?\n]/).find((x) => x.trim().length > 10);
-  return firstSentence?.trim() || text.trim().slice(0, 120);
+  const s = text.split(/[.!?\n]/).find((x) => x.trim().length > 10);
+  return (s || text).trim();
+}
+
+function detectFunnelAngle(ad: any) {
+  const text = `${ad?.title || ''} ${ad?.body || ''} ${ad?.landingPage || ''}`.toLowerCase();
+
+  if (text.includes('quiz') || text.includes('find out') || text.includes('discover')) {
+    return 'Quiz Funnel';
+  }
+  if (text.includes('webinar') || text.includes('masterclass') || text.includes('live training')) {
+    return 'Webinar Funnel';
+  }
+  if (text.includes('download') || text.includes('pdf') || text.includes('guide') || text.includes('ebook')) {
+    return 'Lead Magnet Funnel';
+  }
+  if (
+    text.includes('book now') ||
+    text.includes('consult') ||
+    text.includes('consultation') ||
+    text.includes('call now') ||
+    text.includes('apply now')
+  ) {
+    return 'Consult Funnel';
+  }
+  if (
+    text.includes('shop now') ||
+    text.includes('buy now') ||
+    text.includes('order now') ||
+    text.includes('get yours')
+  ) {
+    return 'Direct Offer Funnel';
+  }
+
+  return 'Unknown Funnel';
+}
+
+function buildAngleFromText(text: string) {
+  const lower = text.toLowerCase();
+
+  if (
+    lower.includes('birth') ||
+    lower.includes('destiny') ||
+    lower.includes('future') ||
+    lower.includes('number')
+  ) {
+    return 'Identity / Destiny';
+  }
+  if (
+    lower.includes('money') ||
+    lower.includes('wealth') ||
+    lower.includes('career') ||
+    lower.includes('success')
+  ) {
+    return 'Wealth / Career';
+  }
+  if (
+    lower.includes('love') ||
+    lower.includes('relationship') ||
+    lower.includes('marriage') ||
+    lower.includes('partner')
+  ) {
+    return 'Love / Relationship';
+  }
+  if (
+    lower.includes('healing') ||
+    lower.includes('energy') ||
+    lower.includes('chakra') ||
+    lower.includes('spiritual')
+  ) {
+    return 'Healing / Spiritual';
+  }
+  if (
+    lower.includes('color') ||
+    lower.includes('wear') ||
+    lower.includes('remedy') ||
+    lower.includes('ritual')
+  ) {
+    return 'Remedy / Ritual';
+  }
+
+  return 'General Curiosity';
+}
+
+function cleanTitle(text: string) {
+  if (!text) return 'Untitled Ad';
+  return text.length > 140 ? `${text.slice(0, 140)}...` : text;
 }
 
 export default function Dashboard({ profile }: { profile: UserProfile | null }) {
   const [activeTab, setActiveTab] = useState<TabId>('overview');
-  const [loading, setLoading] = useState(false);
 
   const [adKeyword, setAdKeyword] = useState('');
+  const [adCountry, setAdCountry] = useState('GLOBAL');
+  const [activeOnly, setActiveOnly] = useState(true);
+  const [searchMode, setSearchMode] = useState<SearchMode>('keyword');
+  const [competitorNames, setCompetitorNames] = useState('');
+  const [landingDomain, setLandingDomain] = useState('');
+
   const [adResults, setAdResults] = useState<any[]>([]);
+  const [adLoading, setAdLoading] = useState(false);
   const [adError, setAdError] = useState('');
-  const [adRunId, setAdRunId] = useState('');
   const [adStatus, setAdStatus] = useState('');
+  const [adRunId, setAdRunId] = useState('');
+
+  const [aiIdeas, setAiIdeas] = useState<{
+    hooks: string[];
+    angles: string[];
+    ctas: string[];
+    scripts: string[];
+  }>({
+    hooks: [],
+    angles: [],
+    ctas: [],
+    scripts: [],
+  });
 
   const handleLogout = async () => {
     await auth.signOut();
   };
 
   const handleFindCompetitorAds = async () => {
-    if (!adKeyword.trim()) return;
-
-    setLoading(true);
+    setAdLoading(true);
     setAdError('');
+    setAdStatus('');
     setAdResults([]);
+    setAiIdeas({ hooks: [], angles: [], ctas: [], scripts: [] });
     setAdRunId('');
-    setAdStatus('Starting search...');
 
     try {
-      const startRes = await fetch(`/api/ads?keyword=${encodeURIComponent(adKeyword.trim())}`);
-      const startData: AdRunResponse = await startRes.json();
+      const params = new URLSearchParams();
 
-      if (!startRes.ok || !startData?.runId) {
-        setAdError((startData as any)?.error || 'Failed to start competitor search.');
-        setLoading(false);
+      params.set('country', adCountry);
+      params.set('activeOnly', String(activeOnly));
+      params.set('mode', searchMode);
+
+      if (searchMode === 'keyword') {
+        if (!adKeyword.trim()) {
+          setAdError('Please enter a keyword.');
+          setAdLoading(false);
+          return;
+        }
+        params.set('keyword', adKeyword.trim());
+      }
+
+      if (searchMode === 'competitor') {
+        if (!competitorNames.trim()) {
+          setAdError('Please enter one or more competitor names.');
+          setAdLoading(false);
+          return;
+        }
+        params.set('competitorNames', competitorNames.trim());
+      }
+
+      if (searchMode === 'landing') {
+        if (!adKeyword.trim()) {
+          setAdError('Please enter a keyword first.');
+          setAdLoading(false);
+          return;
+        }
+        if (!landingDomain.trim()) {
+          setAdError('Please enter a landing page domain.');
+          setAdLoading(false);
+          return;
+        }
+        params.set('keyword', adKeyword.trim());
+        params.set('landingDomain', landingDomain.trim());
+      }
+
+      const startRes = await fetch(`/api/ads?${params.toString()}`);
+      const startData = await startRes.json();
+
+      if (!startRes.ok || !startData.runId) {
+        setAdError(startData.error || 'Failed to start ad search.');
+        setAdLoading(false);
         return;
       }
 
-      const runId = startData.runId;
-      setAdRunId(runId);
+      setAdRunId(startData.runId);
       setAdStatus('Scraping ads...');
 
-      let attempts = 0;
-      let finished = false;
+      let done = false;
+      let tries = 0;
 
-      while (!finished && attempts < 45) {
+      while (!done && tries < 45) {
         await sleep(4000);
 
-        const pollRes = await fetch(`/api/ads?runId=${encodeURIComponent(runId)}`);
-        const pollData: AdRunResponse = await pollRes.json();
+        const pollRes = await fetch(`/api/ads?runId=${encodeURIComponent(startData.runId)}`);
+        const pollData = await pollRes.json();
 
         if (!pollRes.ok) {
-          setAdError((pollData as any)?.error || 'Failed while checking run status.');
-          setLoading(false);
+          setAdError(pollData.error || 'Failed while checking ad run.');
+          setAdLoading(false);
           return;
         }
 
@@ -197,7 +247,7 @@ export default function Dashboard({ profile }: { profile: UserProfile | null }) 
           const items = Array.isArray(pollData.items) ? pollData.items : [];
           setAdResults(items);
           setAdStatus(`Found ${items.length} ads`);
-          finished = true;
+          done = true;
           break;
         }
 
@@ -206,22 +256,22 @@ export default function Dashboard({ profile }: { profile: UserProfile | null }) 
           pollData.status === 'ABORTED' ||
           pollData.status === 'TIMED-OUT'
         ) {
-          setAdError(`Ad search failed: ${pollData.status}`);
-          setLoading(false);
+          setAdError(`Search failed: ${pollData.status}`);
+          setAdLoading(false);
           return;
         }
 
         setAdStatus(`Status: ${pollData.status || 'RUNNING'}...`);
-        attempts += 1;
+        tries += 1;
       }
 
-      if (!finished) {
-        setAdError('This search is taking too long. Try a different keyword.');
+      if (!done) {
+        setAdError('Search took too long. Please try again.');
       }
-    } catch (error) {
-      setAdError('Something went wrong while fetching competitor ads.');
+    } catch (e) {
+      setAdError('Something went wrong while searching ads.');
     } finally {
-      setLoading(false);
+      setAdLoading(false);
     }
   };
 
@@ -229,25 +279,100 @@ export default function Dashboard({ profile }: { profile: UserProfile | null }) 
     const counts = new Map<string, number>();
 
     adResults.forEach((ad) => {
-      const hook = getHook(getAdBody(ad) || getAdTitle(ad));
+      const hook = firstSentence(ad?.body || ad?.title || '');
       if (hook) counts.set(hook, (counts.get(hook) || 0) + 1);
     });
 
     return Array.from(counts.entries())
       .sort((a, b) => b[1] - a[1])
-      .slice(0, 5);
+      .slice(0, 6);
   }, [adResults]);
 
   const topFormats = useMemo(() => {
     const counts = new Map<string, number>();
 
     adResults.forEach((ad) => {
-      const format = getAdFormat(ad);
-      counts.set(format, (counts.get(format) || 0) + 1);
+      const key = String(ad?.format || 'Unknown').toUpperCase();
+      counts.set(key, (counts.get(key) || 0) + 1);
     });
 
     return Array.from(counts.entries()).sort((a, b) => b[1] - a[1]);
   }, [adResults]);
+
+  const topFunnels = useMemo(() => {
+    const counts = new Map<string, number>();
+
+    adResults.forEach((ad) => {
+      const funnel = detectFunnelAngle(ad);
+      counts.set(funnel, (counts.get(funnel) || 0) + 1);
+    });
+
+    return Array.from(counts.entries()).sort((a, b) => b[1] - a[1]);
+  }, [adResults]);
+
+  const landingPages = useMemo(() => {
+    const urls = new Set<string>();
+    adResults.forEach((ad) => {
+      if (ad?.landingPage) urls.add(ad.landingPage);
+    });
+    return Array.from(urls).slice(0, 10);
+  }, [adResults]);
+
+  const bestAngles = useMemo(() => {
+    const counts = new Map<string, number>();
+
+    adResults.forEach((ad) => {
+      const angle = buildAngleFromText(`${ad?.title || ''} ${ad?.body || ''}`);
+      counts.set(angle, (counts.get(angle) || 0) + 1);
+    });
+
+    return Array.from(counts.entries()).sort((a, b) => b[1] - a[1]);
+  }, [adResults]);
+
+  const handleGenerateIdeas = () => {
+    const baseKeyword =
+      searchMode === 'keyword'
+        ? adKeyword.trim()
+        : searchMode === 'landing'
+        ? adKeyword.trim()
+        : competitorNames.split(',')[0]?.trim() || 'your niche';
+
+    const hooks = topHooks.slice(0, 5).map(([hook]) => hook);
+
+    const generatedHooks = [
+      `What your ${baseKeyword} pattern is secretly saying about your future`,
+      `The hidden reason most people struggle before they understand ${baseKeyword}`,
+      `One simple shift in ${baseKeyword} can change your next chapter`,
+      `Why your current path feels blocked — and what ${baseKeyword} reveals`,
+      `The truth about ${baseKeyword} that most people discover too late`,
+    ];
+
+    const generatedAngles = [
+      `${baseKeyword} as identity decoding`,
+      `${baseKeyword} as a practical life shortcut`,
+      `${baseKeyword} for love, wealth, and confidence`,
+    ];
+
+    const generatedCtas = [
+      'Discover your result now',
+      'See your personalized insight',
+      'Unlock your reading today',
+      'Find your next step now',
+      'Get the answer instantly',
+    ];
+
+    const generatedScripts = [
+      `Hook: ${hooks[0] || generatedHooks[0]}\nBody: Show the pain point, reveal the hidden pattern, and promise a practical next step.\nCTA: ${generatedCtas[0]}`,
+      `Hook: ${hooks[1] || generatedHooks[1]}\nBody: Use curiosity + transformation + urgency.\nCTA: ${generatedCtas[1]}`,
+    ];
+
+    setAiIdeas({
+      hooks: hooks.length ? hooks.concat(generatedHooks).slice(0, 5) : generatedHooks,
+      angles: generatedAngles,
+      ctas: generatedCtas,
+      scripts: generatedScripts,
+    });
+  };
 
   const renderOverview = () => (
     <div className="space-y-6">
@@ -268,8 +393,8 @@ export default function Dashboard({ profile }: { profile: UserProfile | null }) 
       <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
         <h2 className="text-xl font-bold text-slate-900">Welcome Back</h2>
         <p className="text-slate-600 mt-2">
-          Use <strong>Global Ad Spy</strong> to search live competitor ads by keyword and turn them into hooks,
-          creative patterns, and strategy ideas.
+          Use <strong>Global Ad Spy</strong> to search live competitor ads by keyword, country,
+          competitor names, or landing page domain.
         </p>
       </div>
     </div>
@@ -282,7 +407,7 @@ export default function Dashboard({ profile }: { profile: UserProfile | null }) 
           <div>
             <h2 className="text-xl font-bold text-slate-900">Competitor Ad Finder</h2>
             <p className="text-sm text-slate-500 mt-1">
-              Search live competitor ads from the Facebook Ad Library pipeline.
+              Search by keyword, country, competitor name, or landing page domain.
             </p>
           </div>
 
@@ -294,19 +419,80 @@ export default function Dashboard({ profile }: { profile: UserProfile | null }) 
           </div>
         </div>
 
-        <div className="mt-5 flex flex-col md:flex-row gap-3">
+        <div className="mt-5 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
           <input
             value={adKeyword}
             onChange={(e) => setAdKeyword(e.target.value)}
-            placeholder="Try: numerology, astrology, tarot, coaching"
-            className="flex-1 rounded-xl border border-slate-300 px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500"
+            placeholder="Keyword: astrology, tarot, psychic, spiritual"
+            className="rounded-xl border border-slate-300 px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500"
           />
+
+          <select
+            value={adCountry}
+            onChange={(e) => setAdCountry(e.target.value)}
+            className="rounded-xl border border-slate-300 px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="GLOBAL">Global</option>
+            <option value="IN">India</option>
+            <option value="US">United States</option>
+            <option value="UK">United Kingdom</option>
+            <option value="CA">Canada</option>
+            <option value="AE">UAE</option>
+          </select>
+
+          <select
+            value={searchMode}
+            onChange={(e) => setSearchMode(e.target.value as SearchMode)}
+            className="rounded-xl border border-slate-300 px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="keyword">Keyword</option>
+            <option value="competitor">Competitor names</option>
+            <option value="landing">Landing page domain</option>
+          </select>
+
+          <select
+            value={activeOnly ? 'active' : 'all'}
+            onChange={(e) => setActiveOnly(e.target.value === 'active')}
+            className="rounded-xl border border-slate-300 px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="active">Active only</option>
+            <option value="all">Active + inactive</option>
+          </select>
+        </div>
+
+        {searchMode === 'competitor' && (
+          <input
+            value={competitorNames}
+            onChange={(e) => setCompetitorNames(e.target.value)}
+            placeholder="Competitor names, comma separated"
+            className="mt-3 w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        )}
+
+        {searchMode === 'landing' && (
+          <input
+            value={landingDomain}
+            onChange={(e) => setLandingDomain(e.target.value)}
+            placeholder="Landing page domain, e.g. example.com"
+            className="mt-3 w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        )}
+
+        <div className="mt-4 flex gap-3 flex-wrap">
           <button
             onClick={handleFindCompetitorAds}
-            disabled={loading}
+            disabled={adLoading}
             className="rounded-xl bg-[#1F3A8A] hover:opacity-90 text-white px-5 py-3 font-semibold disabled:opacity-50"
           >
-            {loading ? 'Searching...' : 'Search Ads'}
+            {adLoading ? 'Searching...' : 'Search Ads'}
+          </button>
+
+          <button
+            onClick={handleGenerateIdeas}
+            disabled={!adResults.length}
+            className="rounded-xl bg-[#D4AF37] hover:opacity-90 text-white px-5 py-3 font-semibold disabled:opacity-50"
+          >
+            Generate AI Ideas
           </button>
         </div>
 
@@ -325,10 +511,10 @@ export default function Dashboard({ profile }: { profile: UserProfile | null }) 
         )}
       </div>
 
-      {(topHooks.length > 0 || topFormats.length > 0) && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      {(topHooks.length > 0 || topFormats.length > 0 || topFunnels.length > 0) && (
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
           <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
-            <h3 className="text-lg font-bold text-slate-900">Top Hook Patterns</h3>
+            <h3 className="text-lg font-bold text-slate-900">Best Hook Patterns</h3>
             <div className="mt-4 space-y-3">
               {topHooks.map(([hook, count], idx) => (
                 <div key={idx} className="rounded-xl bg-slate-50 px-4 py-3">
@@ -350,100 +536,206 @@ export default function Dashboard({ profile }: { profile: UserProfile | null }) 
               ))}
             </div>
           </div>
+
+          <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+            <h3 className="text-lg font-bold text-slate-900">Funnel Angles</h3>
+            <div className="mt-4 space-y-3">
+              {topFunnels.map(([funnel, count], idx) => (
+                <div key={idx} className="flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3">
+                  <p className="text-sm font-medium text-slate-900">{funnel}</p>
+                  <p className="text-sm text-slate-500">{count}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {(landingPages.length > 0 || bestAngles.length > 0) && (
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+          <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+            <h3 className="text-lg font-bold text-slate-900">Landing Page Links</h3>
+            <div className="mt-4 space-y-3">
+              {landingPages.map((url, idx) => (
+                <a
+                  key={idx}
+                  href={url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="block rounded-xl bg-slate-50 px-4 py-3 text-sm text-blue-600 hover:text-blue-700"
+                >
+                  {url}
+                </a>
+              ))}
+            </div>
+          </div>
+
+          <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+            <h3 className="text-lg font-bold text-slate-900">Top Market Angles</h3>
+            <div className="mt-4 space-y-3">
+              {bestAngles.map(([angle, count], idx) => (
+                <div key={idx} className="flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3">
+                  <p className="text-sm font-medium text-slate-900">{angle}</p>
+                  <p className="text-sm text-slate-500">{count}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {(aiIdeas.hooks.length > 0 || aiIdeas.angles.length > 0 || aiIdeas.scripts.length > 0) && (
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+          <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+            <h3 className="text-lg font-bold text-slate-900">AI-Generated Hooks You Can Run</h3>
+            <div className="mt-4 space-y-3">
+              {aiIdeas.hooks.map((hook, idx) => (
+                <div key={idx} className="rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-900">
+                  {hook}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+            <h3 className="text-lg font-bold text-slate-900">AI Ad Angles + CTAs</h3>
+            <div className="mt-4 space-y-4">
+              <div>
+                <p className="text-sm font-semibold text-slate-700 mb-2">Angles</p>
+                <div className="space-y-2">
+                  {aiIdeas.angles.map((angle, idx) => (
+                    <div key={idx} className="rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-900">
+                      {angle}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <p className="text-sm font-semibold text-slate-700 mb-2">CTAs</p>
+                <div className="space-y-2">
+                  {aiIdeas.ctas.map((cta, idx) => (
+                    <div key={idx} className="rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-900">
+                      {cta}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="xl:col-span-2 bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+            <h3 className="text-lg font-bold text-slate-900">AI Ad Scripts You Can Run</h3>
+            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+              {aiIdeas.scripts.map((script, idx) => (
+                <div key={idx} className="rounded-xl bg-slate-50 px-4 py-4 text-sm text-slate-900 whitespace-pre-wrap">
+                  {script}
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       )}
 
       {adResults.length > 0 && (
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-          {adResults.map((ad, index) => {
-            const title = getAdTitle(ad);
-            const body = getAdBody(ad);
-            const format = getAdFormat(ad);
-            const pageName = getAdPageName(ad);
-            const platforms = getAdPlatforms(ad);
-            const imageUrl = getAdImageUrl(ad);
-            const videoUrl = getAdVideoUrl(ad);
-            const snapshotUrl = getAdSnapshotUrl(ad);
-            const startDate = getAdStartDate(ad);
-            const endDate = getAdEndDate(ad);
-            const active = ad?.isActive === true || ad?.snapshot?.isActive === true;
+          {adResults.map((ad, index) => (
+            <motion.div
+              key={index}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="font-semibold text-slate-900">{cleanTitle(ad?.title || '')}</h3>
+                  <p className="text-sm text-slate-500 mt-1">{ad?.pageName || 'Unknown advertiser'}</p>
+                </div>
+                <span
+                  className={`text-xs px-2 py-1 rounded-full ${
+                    ad?.active ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'
+                  }`}
+                >
+                  {ad?.active ? 'Active' : 'Inactive'}
+                </span>
+              </div>
 
-            return (
-              <motion.div
-                key={index}
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <h3 className="font-semibold text-slate-900">{title}</h3>
-                    <p className="text-sm text-slate-500 mt-1">{pageName}</p>
-                  </div>
-                  <span
-                    className={`text-xs px-2 py-1 rounded-full ${
-                      active ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'
-                    }`}
-                  >
-                    {active ? 'Active' : 'Inactive'}
-                  </span>
+              {ad?.imageUrl ? (
+                <img
+                  src={ad.imageUrl}
+                  alt={ad.title || 'Ad'}
+                  className="mt-4 w-full h-52 object-cover rounded-xl border border-slate-200"
+                />
+              ) : ad?.videoUrl ? (
+                <video
+                  src={ad.videoUrl}
+                  controls
+                  className="mt-4 w-full h-52 object-cover rounded-xl border border-slate-200"
+                />
+              ) : null}
+
+              {!!ad?.body && (
+                <p className="mt-4 text-sm text-slate-700 whitespace-pre-wrap">
+                  {ad.body}
+                </p>
+              )}
+
+              <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+                <div className="rounded-xl bg-slate-50 px-3 py-2">
+                  <p className="text-slate-500">Format</p>
+                  <p className="font-medium text-slate-900">{ad?.format || 'Unknown'}</p>
                 </div>
 
-                {imageUrl ? (
-                  <img
-                    src={imageUrl}
-                    alt={title}
-                    className="mt-4 w-full h-52 object-cover rounded-xl border border-slate-200"
-                  />
-                ) : videoUrl ? (
-                  <video
-                    src={videoUrl}
-                    controls
-                    className="mt-4 w-full h-52 object-cover rounded-xl border border-slate-200"
-                  />
-                ) : null}
-
-                {!!body && (
-                  <p className="mt-4 text-sm text-slate-700 whitespace-pre-wrap">
-                    {body}
+                <div className="rounded-xl bg-slate-50 px-3 py-2">
+                  <p className="text-slate-500">Platforms</p>
+                  <p className="font-medium text-slate-900">
+                    {Array.isArray(ad?.platforms) && ad.platforms.length
+                      ? ad.platforms.join(', ')
+                      : 'Unknown'}
                   </p>
-                )}
-
-                <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
-                  <div className="rounded-xl bg-slate-50 px-3 py-2">
-                    <p className="text-slate-500">Format</p>
-                    <p className="font-medium text-slate-900">{format}</p>
-                  </div>
-                  <div className="rounded-xl bg-slate-50 px-3 py-2">
-                    <p className="text-slate-500">Platforms</p>
-                    <p className="font-medium text-slate-900">
-                      {platforms.length ? platforms.join(', ') : 'Unknown'}
-                    </p>
-                  </div>
-                  <div className="rounded-xl bg-slate-50 px-3 py-2">
-                    <p className="text-slate-500">Start</p>
-                    <p className="font-medium text-slate-900">{startDate || '—'}</p>
-                  </div>
-                  <div className="rounded-xl bg-slate-50 px-3 py-2">
-                    <p className="text-slate-500">End</p>
-                    <p className="font-medium text-slate-900">{endDate || '—'}</p>
-                  </div>
                 </div>
 
-                {snapshotUrl && (
-                  <a
-                    href={snapshotUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-2 mt-4 text-sm text-blue-600 hover:text-blue-700 font-medium"
-                  >
-                    <ExternalLink className="w-4 h-4" />
-                    Open Ad Snapshot
-                  </a>
-                )}
-              </motion.div>
-            );
-          })}
+                <div className="rounded-xl bg-slate-50 px-3 py-2">
+                  <p className="text-slate-500">Start</p>
+                  <p className="font-medium text-slate-900">{ad?.startDate || '—'}</p>
+                </div>
+
+                <div className="rounded-xl bg-slate-50 px-3 py-2">
+                  <p className="text-slate-500">End</p>
+                  <p className="font-medium text-slate-900">{ad?.endDate || '—'}</p>
+                </div>
+
+                <div className="rounded-xl bg-slate-50 px-3 py-2 col-span-2">
+                  <p className="text-slate-500">Funnel Angle</p>
+                  <p className="font-medium text-slate-900">{detectFunnelAngle(ad)}</p>
+                </div>
+              </div>
+
+              {ad?.landingPage && (
+                <a
+                  href={ad.landingPage}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-2 mt-4 text-sm text-blue-600 hover:text-blue-700 font-medium mr-4"
+                >
+                  <Globe className="w-4 h-4" />
+                  Open Landing Page
+                </a>
+              )}
+
+              {ad?.adSnapshotUrl && (
+                <a
+                  href={ad.adSnapshotUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-2 mt-4 text-sm text-blue-600 hover:text-blue-700 font-medium"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                  Open Ad Snapshot
+                </a>
+              )}
+            </motion.div>
+          ))}
         </div>
       )}
     </div>
@@ -530,17 +822,17 @@ export default function Dashboard({ profile }: { profile: UserProfile | null }) 
         {activeTab === 'overview' && renderOverview()}
         {activeTab === 'adspy' && renderAdSpy()}
         {activeTab === 'competitors' &&
-          renderPlaceholder('Competitor Tracker', 'Use Global Ad Spy first, then save or classify competitors in your next build.')}
+          renderPlaceholder('Competitor Tracker', 'Track saved competitors and compare their ad angles in the next build.')}
         {activeTab === 'analyzer' &&
-          renderPlaceholder('AI Ad Analyzer', 'Next step: analyze the ads you fetch and turn them into hook patterns, CTA trends, and script ideas.')}
+          renderPlaceholder('AI Ad Analyzer', 'Use scraped competitor ads to analyze hooks, formats, and conversion style.')}
         {activeTab === 'campaigns' &&
-          renderPlaceholder('Campaign Tracker', 'Next step: connect your own ad account metrics like CPL, CTR, CPA, and ROAS.')}
+          renderPlaceholder('Campaign Tracker', 'Connect your own ad account next for CPL, CTR, CPA, and ROAS.')}
         {activeTab === 'hooks' &&
-          renderPlaceholder('Hook Generator', 'Next step: generate winning hooks from the live competitor ads already being pulled.')}
+          renderPlaceholder('Hook Generator', 'Generate hook ideas from the market patterns already found in Global Ad Spy.')}
         {activeTab === 'trends' &&
-          renderPlaceholder('Trend Radar', 'Next step: identify recurring market themes across scraped ads and creatives.')}
+          renderPlaceholder('Trend Radar', 'See recurring themes across astrology, tarot, psychic, and spiritual markets.')}
         {activeTab === 'advisor' &&
-          renderPlaceholder('Strategy AI', 'Next step: ask AI to recommend offers, formats, and scripts from competitor data.')}
+          renderPlaceholder('Strategy AI', 'Use the market intelligence to create your next offer, ad, and funnel direction.')}
       </main>
     </div>
   );
