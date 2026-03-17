@@ -14,6 +14,7 @@ import {
   AlertCircle,
   ExternalLink,
   Globe,
+  PlayCircle,
 } from 'lucide-react';
 import { auth } from '../firebase';
 import { UserProfile } from '../types';
@@ -54,34 +55,60 @@ function firstSentence(text: string) {
 function detectFunnelAngle(ad: any) {
   const text = `${ad?.title || ''} ${ad?.body || ''} ${ad?.landingPage || ''}`.toLowerCase();
 
-  if (text.includes('quiz') || text.includes('find out') || text.includes('discover')) {
-    return 'Quiz Funnel';
-  }
-  if (text.includes('webinar') || text.includes('masterclass') || text.includes('live training')) {
-    return 'Webinar Funnel';
-  }
-  if (text.includes('download') || text.includes('pdf') || text.includes('guide') || text.includes('ebook')) {
-    return 'Lead Magnet Funnel';
-  }
+  if (text.includes('quiz') || text.includes('find out') || text.includes('discover')) return 'Quiz Funnel';
+  if (text.includes('webinar') || text.includes('masterclass') || text.includes('live training')) return 'Webinar Funnel';
+  if (text.includes('download') || text.includes('pdf') || text.includes('guide') || text.includes('ebook')) return 'Lead Magnet Funnel';
   if (
     text.includes('book now') ||
     text.includes('consult') ||
     text.includes('consultation') ||
     text.includes('call now') ||
     text.includes('apply now')
-  ) {
-    return 'Consult Funnel';
-  }
+  ) return 'Consult Funnel';
   if (
     text.includes('shop now') ||
     text.includes('buy now') ||
     text.includes('order now') ||
     text.includes('get yours')
-  ) {
-    return 'Direct Offer Funnel';
-  }
+  ) return 'Direct Offer Funnel';
 
   return 'Unknown Funnel';
+}
+
+function detectHookType(text: string) {
+  const lower = text.toLowerCase();
+
+  if (
+    lower.includes('why') ||
+    lower.includes('what if') ||
+    lower.includes('discover') ||
+    lower.includes('hidden')
+  ) return 'Curiosity Hook';
+
+  if (
+    lower.includes('stuck') ||
+    lower.includes('blocked') ||
+    lower.includes('drained') ||
+    lower.includes('struggle') ||
+    lower.includes('problem')
+  ) return 'Pain Hook';
+
+  if (
+    lower.includes('success') ||
+    lower.includes('wealth') ||
+    lower.includes('love') ||
+    lower.includes('confidence') ||
+    lower.includes('future')
+  ) return 'Desire Hook';
+
+  if (
+    lower.includes('personalized') ||
+    lower.includes('report') ||
+    lower.includes('reading') ||
+    lower.includes('guide')
+  ) return 'Personalization Hook';
+
+  return 'General Hook';
 }
 
 function buildAngleFromText(text: string) {
@@ -92,43 +119,50 @@ function buildAngleFromText(text: string) {
     lower.includes('destiny') ||
     lower.includes('future') ||
     lower.includes('number')
-  ) {
-    return 'Identity / Destiny';
-  }
+  ) return 'Identity / Destiny';
+
   if (
     lower.includes('money') ||
     lower.includes('wealth') ||
     lower.includes('career') ||
     lower.includes('success')
-  ) {
-    return 'Wealth / Career';
-  }
+  ) return 'Wealth / Career';
+
   if (
     lower.includes('love') ||
     lower.includes('relationship') ||
     lower.includes('marriage') ||
     lower.includes('partner')
-  ) {
-    return 'Love / Relationship';
-  }
+  ) return 'Love / Relationship';
+
   if (
     lower.includes('healing') ||
     lower.includes('energy') ||
     lower.includes('chakra') ||
     lower.includes('spiritual')
-  ) {
-    return 'Healing / Spiritual';
-  }
+  ) return 'Healing / Spiritual';
+
   if (
     lower.includes('color') ||
     lower.includes('wear') ||
     lower.includes('remedy') ||
     lower.includes('ritual')
-  ) {
-    return 'Remedy / Ritual';
-  }
+  ) return 'Remedy / Ritual';
 
   return 'General Curiosity';
+}
+
+function getCTA(ad: any) {
+  const text = `${ad?.title || ''} ${ad?.body || ''} ${ad?.landingPage || ''}`.toLowerCase();
+
+  if (text.includes('book')) return 'Book Now';
+  if (text.includes('download')) return 'Download';
+  if (text.includes('learn more')) return 'Learn More';
+  if (text.includes('shop')) return 'Shop Now';
+  if (text.includes('watch')) return 'Watch More';
+  if (text.includes('apply')) return 'Apply Now';
+  if (text.includes('discover')) return 'Discover';
+  return 'Learn More';
 }
 
 function cleanTitle(text: string) {
@@ -178,7 +212,6 @@ export default function Dashboard({ profile }: { profile: UserProfile | null }) 
 
     try {
       const params = new URLSearchParams();
-
       params.set('country', adCountry);
       params.set('activeOnly', String(activeOnly));
       params.set('mode', searchMode);
@@ -220,7 +253,12 @@ export default function Dashboard({ profile }: { profile: UserProfile | null }) 
       const startData = await startRes.json();
 
       if (!startRes.ok || !startData.runId) {
-        setAdError(startData.error || 'Failed to start ad search.');
+        setAdError(
+          startData?.error ||
+            startData?.details ||
+            JSON.stringify(startData) ||
+            'Failed to start ad search.'
+        );
         setAdLoading(false);
         return;
       }
@@ -238,7 +276,12 @@ export default function Dashboard({ profile }: { profile: UserProfile | null }) 
         const pollData = await pollRes.json();
 
         if (!pollRes.ok) {
-          setAdError(pollData.error || 'Failed while checking ad run.');
+          setAdError(
+            pollData?.error ||
+              pollData?.details ||
+              JSON.stringify(pollData) ||
+              'Failed while checking ad run.'
+          );
           setAdLoading(false);
           return;
         }
@@ -268,8 +311,9 @@ export default function Dashboard({ profile }: { profile: UserProfile | null }) 
       if (!done) {
         setAdError('Search took too long. Please try again.');
       }
-    } catch (e) {
-      setAdError('Something went wrong while searching ads.');
+    } catch (e: any) {
+      setAdError(e?.message || 'Something went wrong while searching ads.');
+      console.error('Ad search error:', e);
     } finally {
       setAdLoading(false);
     }
@@ -277,36 +321,28 @@ export default function Dashboard({ profile }: { profile: UserProfile | null }) 
 
   const topHooks = useMemo(() => {
     const counts = new Map<string, number>();
-
     adResults.forEach((ad) => {
       const hook = firstSentence(ad?.body || ad?.title || '');
       if (hook) counts.set(hook, (counts.get(hook) || 0) + 1);
     });
-
-    return Array.from(counts.entries())
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 6);
+    return Array.from(counts.entries()).sort((a, b) => b[1] - a[1]).slice(0, 8);
   }, [adResults]);
 
   const topFormats = useMemo(() => {
     const counts = new Map<string, number>();
-
     adResults.forEach((ad) => {
       const key = String(ad?.format || 'Unknown').toUpperCase();
       counts.set(key, (counts.get(key) || 0) + 1);
     });
-
     return Array.from(counts.entries()).sort((a, b) => b[1] - a[1]);
   }, [adResults]);
 
   const topFunnels = useMemo(() => {
     const counts = new Map<string, number>();
-
     adResults.forEach((ad) => {
       const funnel = detectFunnelAngle(ad);
       counts.set(funnel, (counts.get(funnel) || 0) + 1);
     });
-
     return Array.from(counts.entries()).sort((a, b) => b[1] - a[1]);
   }, [adResults]);
 
@@ -315,18 +351,34 @@ export default function Dashboard({ profile }: { profile: UserProfile | null }) 
     adResults.forEach((ad) => {
       if (ad?.landingPage) urls.add(ad.landingPage);
     });
-    return Array.from(urls).slice(0, 10);
+    return Array.from(urls).slice(0, 12);
   }, [adResults]);
 
   const bestAngles = useMemo(() => {
     const counts = new Map<string, number>();
-
     adResults.forEach((ad) => {
       const angle = buildAngleFromText(`${ad?.title || ''} ${ad?.body || ''}`);
       counts.set(angle, (counts.get(angle) || 0) + 1);
     });
-
     return Array.from(counts.entries()).sort((a, b) => b[1] - a[1]);
+  }, [adResults]);
+
+  const hookTypes = useMemo(() => {
+    const counts = new Map<string, number>();
+    adResults.forEach((ad) => {
+      const type = detectHookType(`${ad?.title || ''} ${ad?.body || ''}`);
+      counts.set(type, (counts.get(type) || 0) + 1);
+    });
+    return Array.from(counts.entries()).sort((a, b) => b[1] - a[1]);
+  }, [adResults]);
+
+  const competitorPages = useMemo(() => {
+    const counts = new Map<string, number>();
+    adResults.forEach((ad) => {
+      const page = ad?.pageName || 'Unknown advertiser';
+      counts.set(page, (counts.get(page) || 0) + 1);
+    });
+    return Array.from(counts.entries()).sort((a, b) => b[1] - a[1]).slice(0, 12);
   }, [adResults]);
 
   const handleGenerateIdeas = () => {
@@ -349,8 +401,9 @@ export default function Dashboard({ profile }: { profile: UserProfile | null }) 
 
     const generatedAngles = [
       `${baseKeyword} as identity decoding`,
-      `${baseKeyword} as a practical life shortcut`,
+      `${baseKeyword} as a practical shortcut`,
       `${baseKeyword} for love, wealth, and confidence`,
+      `${baseKeyword} as a personalized report funnel`,
     ];
 
     const generatedCtas = [
@@ -362,8 +415,9 @@ export default function Dashboard({ profile }: { profile: UserProfile | null }) 
     ];
 
     const generatedScripts = [
-      `Hook: ${hooks[0] || generatedHooks[0]}\nBody: Show the pain point, reveal the hidden pattern, and promise a practical next step.\nCTA: ${generatedCtas[0]}`,
-      `Hook: ${hooks[1] || generatedHooks[1]}\nBody: Use curiosity + transformation + urgency.\nCTA: ${generatedCtas[1]}`,
+      `Hook: ${hooks[0] || generatedHooks[0]}\nBody: Call out the hidden struggle, introduce the insight, and promise a transformation.\nCTA: ${generatedCtas[0]}`,
+      `Hook: ${hooks[1] || generatedHooks[1]}\nBody: Use curiosity, identity, and a practical promise.\nCTA: ${generatedCtas[1]}`,
+      `Hook: ${hooks[2] || generatedHooks[2]}\nBody: Use a specific niche pain point and position your offer as the missing answer.\nCTA: ${generatedCtas[2]}`,
     ];
 
     setAiIdeas({
@@ -411,12 +465,10 @@ export default function Dashboard({ profile }: { profile: UserProfile | null }) 
             </p>
           </div>
 
-          <div className="flex items-center gap-2 text-sm">
-            <span className="inline-flex items-center gap-2 rounded-full bg-emerald-50 text-emerald-700 px-3 py-1">
-              <CheckCircle2 className="w-4 h-4" />
-              System Live
-            </span>
-          </div>
+          <span className="inline-flex items-center gap-2 rounded-full bg-emerald-50 text-emerald-700 px-3 py-1 text-sm">
+            <CheckCircle2 className="w-4 h-4" />
+            System Live
+          </span>
         </div>
 
         <div className="mt-5 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
@@ -516,7 +568,7 @@ export default function Dashboard({ profile }: { profile: UserProfile | null }) 
           <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
             <h3 className="text-lg font-bold text-slate-900">Best Hook Patterns</h3>
             <div className="mt-4 space-y-3">
-              {topHooks.map(([hook, count], idx) => (
+              {topHooks.slice(0, 5).map(([hook, count], idx) => (
                 <div key={idx} className="rounded-xl bg-slate-50 px-4 py-3">
                   <p className="text-sm font-medium text-slate-900">{hook}</p>
                   <p className="text-xs text-slate-500 mt-1">Seen {count} time(s)</p>
@@ -551,200 +603,339 @@ export default function Dashboard({ profile }: { profile: UserProfile | null }) 
         </div>
       )}
 
-      {(landingPages.length > 0 || bestAngles.length > 0) && (
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-          <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
-            <h3 className="text-lg font-bold text-slate-900">Landing Page Links</h3>
-            <div className="mt-4 space-y-3">
-              {landingPages.map((url, idx) => (
-                <a
-                  key={idx}
-                  href={url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="block rounded-xl bg-slate-50 px-4 py-3 text-sm text-blue-600 hover:text-blue-700"
-                >
-                  {url}
-                </a>
-              ))}
-            </div>
-          </div>
+      {adResults.length > 0 && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-5">
+          {adResults.map((ad, index) => {
+            const cta = getCTA(ad);
+            const hookType = detectHookType(`${ad?.title || ''} ${ad?.body || ''}`);
 
-          <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
-            <h3 className="text-lg font-bold text-slate-900">Top Market Angles</h3>
-            <div className="mt-4 space-y-3">
-              {bestAngles.map(([angle, count], idx) => (
-                <div key={idx} className="flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3">
-                  <p className="text-sm font-medium text-slate-900">{angle}</p>
-                  <p className="text-sm text-slate-500">{count}</p>
+            return (
+              <motion.div
+                key={index}
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden"
+              >
+                <div className="p-4 border-b border-slate-100">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full ${
+                            ad?.active ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'
+                          }`}
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          {ad?.active ? 'Active' : 'Inactive'}
+                        </span>
+                      </div>
+                      <h3 className="mt-3 font-semibold text-slate-900">{ad?.pageName || 'Unknown advertiser'}</h3>
+                      <p className="text-xs text-slate-500 mt-1">
+                        {Array.isArray(ad?.platforms) && ad.platforms.length
+                          ? ad.platforms.join(', ')
+                          : 'Unknown platforms'}
+                      </p>
+                    </div>
+
+                    <div className="text-right text-xs text-slate-500">
+                      {ad?.startDate ? <div>Start: {ad.startDate}</div> : null}
+                      {ad?.endDate ? <div className="mt-1">End: {ad.endDate}</div> : null}
+                    </div>
+                  </div>
                 </div>
-              ))}
-            </div>
-          </div>
+
+                <div className="p-4">
+                  <p className="text-sm font-medium text-slate-900">{cleanTitle(ad?.title || '')}</p>
+
+                  {!!ad?.body && (
+                    <p className="text-sm text-slate-700 mt-3 whitespace-pre-wrap">
+                      {ad.body}
+                    </p>
+                  )}
+
+                  <div className="mt-4 rounded-xl bg-slate-50 overflow-hidden border border-slate-200">
+                    {ad?.imageUrl ? (
+                      <img
+                        src={ad.imageUrl}
+                        alt={ad.title || 'Ad creative'}
+                        className="w-full h-64 object-cover"
+                      />
+                    ) : ad?.videoUrl ? (
+                      <div className="relative">
+                        <video
+                          src={ad.videoUrl}
+                          controls
+                          className="w-full h-64 object-cover bg-black"
+                        />
+                        <div className="absolute top-3 right-3 rounded-full bg-white/90 px-2 py-1 text-xs font-medium text-slate-700 flex items-center gap-1">
+                          <PlayCircle className="w-3.5 h-3.5" />
+                          Video
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="h-64 flex items-center justify-center text-slate-400 text-sm">
+                        No creative preview available
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+                    <div className="rounded-xl bg-slate-50 px-3 py-2">
+                      <p className="text-slate-500">Format</p>
+                      <p className="font-medium text-slate-900">{ad?.format || 'Unknown'}</p>
+                    </div>
+
+                    <div className="rounded-xl bg-slate-50 px-3 py-2">
+                      <p className="text-slate-500">CTA</p>
+                      <p className="font-medium text-slate-900">{cta}</p>
+                    </div>
+
+                    <div className="rounded-xl bg-slate-50 px-3 py-2">
+                      <p className="text-slate-500">Hook Type</p>
+                      <p className="font-medium text-slate-900">{hookType}</p>
+                    </div>
+
+                    <div className="rounded-xl bg-slate-50 px-3 py-2">
+                      <p className="text-slate-500">Funnel</p>
+                      <p className="font-medium text-slate-900">{detectFunnelAngle(ad)}</p>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 flex gap-3 flex-wrap">
+                    {ad?.landingPage && (
+                      <a
+                        href={ad.landingPage}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-2 rounded-xl bg-slate-900 text-white px-4 py-2 text-sm font-medium hover:opacity-90"
+                      >
+                        <Globe className="w-4 h-4" />
+                        Open Landing Page
+                      </a>
+                    )}
+
+                    {ad?.adSnapshotUrl && (
+                      <a
+                        href={ad.adSnapshotUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-2 rounded-xl border border-slate-300 text-slate-700 px-4 py-2 text-sm font-medium hover:bg-slate-50"
+                      >
+                        <ExternalLink className="w-4 h-4" />
+                        Open Ad Snapshot
+                      </a>
+                    )}
+                  </div>
+                </div>
+              </motion.div>
+            );
+          })}
         </div>
       )}
+    </div>
+  );
 
-      {(aiIdeas.hooks.length > 0 || aiIdeas.angles.length > 0 || aiIdeas.scripts.length > 0) && (
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+  const renderHooks = () => (
+    <div className="space-y-6">
+      <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+        <h2 className="text-xl font-bold text-slate-900">Hook Generator</h2>
+        <p className="text-slate-600 mt-2">
+          These are reusable hook patterns based on the live competitor ads you scraped.
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {topHooks.length ? (
+          topHooks.map(([hook, count], idx) => (
+            <div key={idx} className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+              <p className="text-sm font-semibold text-slate-900">{hook}</p>
+              <p className="text-xs text-slate-500 mt-2">Seen {count} time(s)</p>
+              <p className="text-xs text-slate-400 mt-2">{detectHookType(hook)}</p>
+            </div>
+          ))
+        ) : (
           <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
-            <h3 className="text-lg font-bold text-slate-900">AI-Generated Hooks You Can Run</h3>
-            <div className="mt-4 space-y-3">
-              {aiIdeas.hooks.map((hook, idx) => (
-                <div key={idx} className="rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-900">
-                  {hook}
-                </div>
-              ))}
+            Search ads first to generate hooks.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  const renderTrends = () => (
+    <div className="space-y-6">
+      <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+        <h2 className="text-xl font-bold text-slate-900">Trend Radar</h2>
+        <p className="text-slate-600 mt-2">
+          Market pattern summary from the ads currently scraped.
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+        <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+          <h3 className="font-bold text-slate-900">Top Formats</h3>
+          <div className="mt-4 space-y-3">
+            {topFormats.length ? topFormats.map(([format, count], idx) => (
+              <div key={idx} className="flex justify-between rounded-xl bg-slate-50 px-4 py-3">
+                <span>{format}</span>
+                <span>{count}</span>
+              </div>
+            )) : 'Search ads first'}
+          </div>
+        </div>
+
+        <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+          <h3 className="font-bold text-slate-900">Hook Types</h3>
+          <div className="mt-4 space-y-3">
+            {hookTypes.length ? hookTypes.map(([type, count], idx) => (
+              <div key={idx} className="flex justify-between rounded-xl bg-slate-50 px-4 py-3">
+                <span>{type}</span>
+                <span>{count}</span>
+              </div>
+            )) : 'Search ads first'}
+          </div>
+        </div>
+
+        <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+          <h3 className="font-bold text-slate-900">Top Angles</h3>
+          <div className="mt-4 space-y-3">
+            {bestAngles.length ? bestAngles.map(([angle, count], idx) => (
+              <div key={idx} className="flex justify-between rounded-xl bg-slate-50 px-4 py-3">
+                <span>{angle}</span>
+                <span>{count}</span>
+              </div>
+            )) : 'Search ads first'}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderAdvisor = () => (
+    <div className="space-y-6">
+      <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+        <h2 className="text-xl font-bold text-slate-900">Strategy AI</h2>
+        <p className="text-slate-600 mt-2">
+          Turn market patterns into hooks, angles, CTAs, and scripts you can test.
+        </p>
+      </div>
+
+      <div className="flex gap-3">
+        <button
+          onClick={handleGenerateIdeas}
+          disabled={!adResults.length}
+          className="rounded-xl bg-[#D4AF37] hover:opacity-90 text-white px-5 py-3 font-semibold disabled:opacity-50"
+        >
+          Generate Strategy Ideas
+        </button>
+      </div>
+
+      {(aiIdeas.hooks.length > 0 || aiIdeas.angles.length > 0 || aiIdeas.scripts.length > 0) ? (
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+            <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+              <h3 className="font-bold text-slate-900">Hooks</h3>
+              <div className="mt-4 space-y-3">
+                {aiIdeas.hooks.map((hook, idx) => (
+                  <div key={idx} className="rounded-xl bg-slate-50 px-4 py-3 text-sm">{hook}</div>
+                ))}
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+              <h3 className="font-bold text-slate-900">Angles + CTAs</h3>
+              <div className="mt-4 space-y-3">
+                {aiIdeas.angles.map((angle, idx) => (
+                  <div key={idx} className="rounded-xl bg-slate-50 px-4 py-3 text-sm">{angle}</div>
+                ))}
+                <div className="pt-2 border-t border-slate-200" />
+                {aiIdeas.ctas.map((cta, idx) => (
+                  <div key={idx} className="rounded-xl bg-slate-50 px-4 py-3 text-sm">{cta}</div>
+                ))}
+              </div>
             </div>
           </div>
 
           <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
-            <h3 className="text-lg font-bold text-slate-900">AI Ad Angles + CTAs</h3>
-            <div className="mt-4 space-y-4">
-              <div>
-                <p className="text-sm font-semibold text-slate-700 mb-2">Angles</p>
-                <div className="space-y-2">
-                  {aiIdeas.angles.map((angle, idx) => (
-                    <div key={idx} className="rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-900">
-                      {angle}
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <p className="text-sm font-semibold text-slate-700 mb-2">CTAs</p>
-                <div className="space-y-2">
-                  {aiIdeas.ctas.map((cta, idx) => (
-                    <div key={idx} className="rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-900">
-                      {cta}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="xl:col-span-2 bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
-            <h3 className="text-lg font-bold text-slate-900">AI Ad Scripts You Can Run</h3>
+            <h3 className="font-bold text-slate-900">Scripts You Can Run</h3>
             <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
               {aiIdeas.scripts.map((script, idx) => (
-                <div key={idx} className="rounded-xl bg-slate-50 px-4 py-4 text-sm text-slate-900 whitespace-pre-wrap">
+                <div key={idx} className="rounded-xl bg-slate-50 px-4 py-4 text-sm whitespace-pre-wrap">
                   {script}
                 </div>
               ))}
             </div>
           </div>
         </div>
-      )}
-
-      {adResults.length > 0 && (
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-          {adResults.map((ad, index) => (
-            <motion.div
-              key={index}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <h3 className="font-semibold text-slate-900">{cleanTitle(ad?.title || '')}</h3>
-                  <p className="text-sm text-slate-500 mt-1">{ad?.pageName || 'Unknown advertiser'}</p>
-                </div>
-                <span
-                  className={`text-xs px-2 py-1 rounded-full ${
-                    ad?.active ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'
-                  }`}
-                >
-                  {ad?.active ? 'Active' : 'Inactive'}
-                </span>
-              </div>
-
-              {ad?.imageUrl ? (
-                <img
-                  src={ad.imageUrl}
-                  alt={ad.title || 'Ad'}
-                  className="mt-4 w-full h-52 object-cover rounded-xl border border-slate-200"
-                />
-              ) : ad?.videoUrl ? (
-                <video
-                  src={ad.videoUrl}
-                  controls
-                  className="mt-4 w-full h-52 object-cover rounded-xl border border-slate-200"
-                />
-              ) : null}
-
-              {!!ad?.body && (
-                <p className="mt-4 text-sm text-slate-700 whitespace-pre-wrap">
-                  {ad.body}
-                </p>
-              )}
-
-              <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
-                <div className="rounded-xl bg-slate-50 px-3 py-2">
-                  <p className="text-slate-500">Format</p>
-                  <p className="font-medium text-slate-900">{ad?.format || 'Unknown'}</p>
-                </div>
-
-                <div className="rounded-xl bg-slate-50 px-3 py-2">
-                  <p className="text-slate-500">Platforms</p>
-                  <p className="font-medium text-slate-900">
-                    {Array.isArray(ad?.platforms) && ad.platforms.length
-                      ? ad.platforms.join(', ')
-                      : 'Unknown'}
-                  </p>
-                </div>
-
-                <div className="rounded-xl bg-slate-50 px-3 py-2">
-                  <p className="text-slate-500">Start</p>
-                  <p className="font-medium text-slate-900">{ad?.startDate || '—'}</p>
-                </div>
-
-                <div className="rounded-xl bg-slate-50 px-3 py-2">
-                  <p className="text-slate-500">End</p>
-                  <p className="font-medium text-slate-900">{ad?.endDate || '—'}</p>
-                </div>
-
-                <div className="rounded-xl bg-slate-50 px-3 py-2 col-span-2">
-                  <p className="text-slate-500">Funnel Angle</p>
-                  <p className="font-medium text-slate-900">{detectFunnelAngle(ad)}</p>
-                </div>
-              </div>
-
-              {ad?.landingPage && (
-                <a
-                  href={ad.landingPage}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center gap-2 mt-4 text-sm text-blue-600 hover:text-blue-700 font-medium mr-4"
-                >
-                  <Globe className="w-4 h-4" />
-                  Open Landing Page
-                </a>
-              )}
-
-              {ad?.adSnapshotUrl && (
-                <a
-                  href={ad.adSnapshotUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center gap-2 mt-4 text-sm text-blue-600 hover:text-blue-700 font-medium"
-                >
-                  <ExternalLink className="w-4 h-4" />
-                  Open Ad Snapshot
-                </a>
-              )}
-            </motion.div>
-          ))}
+      ) : (
+        <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+          Search ads first, then generate strategy ideas.
         </div>
       )}
     </div>
   );
 
-  const renderPlaceholder = (title: string, text: string) => (
+  const renderCompetitors = () => (
+    <div className="space-y-6">
+      <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+        <h2 className="text-xl font-bold text-slate-900">Competitor Tracker</h2>
+        <p className="text-slate-600 mt-2">
+          These are the advertiser pages found in your current search.
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+        {competitorPages.length ? competitorPages.map(([page, count], idx) => (
+          <div key={idx} className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+            <p className="font-semibold text-slate-900">{page}</p>
+            <p className="text-sm text-slate-500 mt-2">{count} ad(s)</p>
+          </div>
+        )) : (
+          <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+            Search ads first to list competitors.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  const renderAnalyzer = () => (
+    <div className="space-y-6">
+      <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+        <h2 className="text-xl font-bold text-slate-900">AI Ad Analyzer</h2>
+        <p className="text-slate-600 mt-2">
+          Quick interpretation of what the market is doing.
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+        <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+          <h3 className="font-bold text-slate-900">What is working now</h3>
+          <ul className="mt-4 space-y-3 text-sm text-slate-700">
+            <li>• Top format: {topFormats[0]?.[0] || '—'}</li>
+            <li>• Top funnel: {topFunnels[0]?.[0] || '—'}</li>
+            <li>• Top angle: {bestAngles[0]?.[0] || '—'}</li>
+            <li>• Top hook type: {hookTypes[0]?.[0] || '—'}</li>
+          </ul>
+        </div>
+
+        <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+          <h3 className="font-bold text-slate-900">Suggested move</h3>
+          <p className="mt-4 text-sm text-slate-700">
+            Use the strongest repeated hook, pair it with the top funnel style, and test it with a
+            landing page that promises a personalized result.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderCampaigns = () => (
     <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
-      <h2 className="text-xl font-bold text-slate-900">{title}</h2>
-      <p className="text-slate-600 mt-2">{text}</p>
+      <h2 className="text-xl font-bold text-slate-900">Campaign Tracker</h2>
+      <p className="text-slate-600 mt-2">
+        Next step: connect your own ad account metrics like CTR, CPL, CPA, and ROAS.
+      </p>
     </div>
   );
 
@@ -782,7 +973,7 @@ export default function Dashboard({ profile }: { profile: UserProfile | null }) 
                 {profile?.displayName?.[0] || 'A'}
               </div>
               <div className="min-w-0">
-                <p className="font-semibold truncate">{profile?.displayName || 'Admin User'}</p>
+                <p className="font-semibold truncate">{profile?.displayName || 'User'}</p>
                 <p className="text-sm text-white/70 truncate">{profile?.role || 'admin'}</p>
               </div>
             </div>
@@ -807,9 +998,7 @@ export default function Dashboard({ profile }: { profile: UserProfile | null }) 
                 : sidebarItems.find((x) => x.id === activeTab)?.label || 'Dashboard'}
             </h1>
             <p className="text-slate-500 mt-1">
-              {activeTab === 'overview'
-                ? 'Welcome back, admin'
-                : 'Marketing intelligence workspace'}
+              {activeTab === 'overview' ? 'Welcome back' : 'Marketing intelligence workspace'}
             </p>
           </div>
 
@@ -821,18 +1010,12 @@ export default function Dashboard({ profile }: { profile: UserProfile | null }) 
 
         {activeTab === 'overview' && renderOverview()}
         {activeTab === 'adspy' && renderAdSpy()}
-        {activeTab === 'competitors' &&
-          renderPlaceholder('Competitor Tracker', 'Track saved competitors and compare their ad angles in the next build.')}
-        {activeTab === 'analyzer' &&
-          renderPlaceholder('AI Ad Analyzer', 'Use scraped competitor ads to analyze hooks, formats, and conversion style.')}
-        {activeTab === 'campaigns' &&
-          renderPlaceholder('Campaign Tracker', 'Connect your own ad account next for CPL, CTR, CPA, and ROAS.')}
-        {activeTab === 'hooks' &&
-          renderPlaceholder('Hook Generator', 'Generate hook ideas from the market patterns already found in Global Ad Spy.')}
-        {activeTab === 'trends' &&
-          renderPlaceholder('Trend Radar', 'See recurring themes across astrology, tarot, psychic, and spiritual markets.')}
-        {activeTab === 'advisor' &&
-          renderPlaceholder('Strategy AI', 'Use the market intelligence to create your next offer, ad, and funnel direction.')}
+        {activeTab === 'competitors' && renderCompetitors()}
+        {activeTab === 'analyzer' && renderAnalyzer()}
+        {activeTab === 'campaigns' && renderCampaigns()}
+        {activeTab === 'hooks' && renderHooks()}
+        {activeTab === 'trends' && renderTrends()}
+        {activeTab === 'advisor' && renderAdvisor()}
       </main>
     </div>
   );
