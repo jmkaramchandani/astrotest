@@ -156,9 +156,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           },
           body: JSON.stringify({
             startUrls,
-            resultsLimit: 15,
-            includeAboutPage: true,
-            isDetailsPerAd: true,
+            resultsLimit: 5,
+            includeAboutPage: false,
+            isDetailsPerAd: false,
           }),
         }
       );
